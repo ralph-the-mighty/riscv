@@ -1,0 +1,5 @@
+/simulator/loader/.vs/*
+*.sln
+*.o
+*.exe
+*.pdg
