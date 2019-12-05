@@ -15,6 +15,17 @@ ET_HIOS   :: 0xfeff;
 ET_LOPROC :: 0xff00;
 ET_HIPROC :: 0xffFF;
 
+elf_file_type_descriptions := map[u16]string {
+	ET_NONE   = "None",
+	ET_REL    = "Relocatable",
+	ET_EXEC   = "Executable",
+	ET_DYN    = "Dynamically Linkable Library",
+	ET_CORE   = "Core File",
+	ET_LOOS   = "LOOS",
+	ET_HIOS   = "HIOS",
+	ET_LOPROC = "LOPROC",
+	ET_HIPROC = "HIPROC"
+};
 
 
 //EI 
@@ -125,13 +136,6 @@ SHF_EXCLUDE          :: 0x8000000;
 
 
 
-
-
-
-
-
-
-
 Elf32_Ehdr :: struct #packed {
 	ident: [EI_NIDENT]u8,
 	type: u16,
@@ -221,7 +225,6 @@ parse :: proc(elf_file_bytes: []byte) -> Elf32_File {
 }
 
 
-
 print_header :: proc(elf_header: Elf32_Ehdr) {
 	using elf_header;
 
@@ -260,27 +263,11 @@ print_header :: proc(elf_header: Elf32_Ehdr) {
 	//end ident
 
 	//type
-	fmt.print("Type: ");
-	switch type {
-		case ET_NONE:
-			fmt.print("None\n");
-		case ET_REL:
-			fmt.print("Relocatable File\n");
-		case ET_EXEC:
-			fmt.print("Executable\n");			
-		case ET_DYN:
-			fmt.print("Dynamically Linkable Library\n");
-		case ET_CORE:
-			fmt.print("Core File\n");
-		case ET_LOOS:
-			fmt.print("LOOS (?)\n");
-		case ET_HIOS:
-			fmt.print("HIOS (?)\n");
-		case ET_LOPROC:
-			fmt.print("LOPROC (?)\n");			
-		case ET_HIPROC:
-			fmt.print("HIPROC (?)\n");
+	type_descr, ok := elf_file_type_descriptions[type];
+	if(!ok) {
+		type_descr = "UNKNOWN";
 	}
+	fmt.printf("Type: %s\n", type_descr);
 
 	//machine
 	fmt.print("Instruction Set Architecture: ");
@@ -323,9 +310,6 @@ print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
 
 	fmt.printf("name: %s\n", cstring(name_string));
 
-
-
-
 	type_descr, ok := sh_type_descriptions[type];
 	if(!ok) {
 		type_descr = "UNKNOWN TYPE";
@@ -351,9 +335,7 @@ lookup_section_name :: proc(elf_file: Elf32_File, index: int) -> string {
 
 print_report :: proc(elf_file: Elf32_File) {
 	print_header(elf_file.file_header);
-	
-	fmt.print("\nProgram Headers\n\n");
-	
+	fmt.print("\n\n");
 
 	fmt.printf("Program Header Entries: %d (starts at 0x%x), size: %d bytes\n\n",
 			   elf_file.file_header.phnum,
