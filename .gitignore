@@ -2,4 +2,4 @@
 *.sln
 *.o
 *.exe
-*.pdg
+*.pdb
