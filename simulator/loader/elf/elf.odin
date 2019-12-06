@@ -15,6 +15,7 @@ ET_HIOS   :: 0xfeff;
 ET_LOPROC :: 0xff00;
 ET_HIPROC :: 0xffFF;
 
+@static
 elf_file_type_descriptions := map[u16]string {
 	ET_NONE   = "None",
 	ET_REL    = "Relocatable",
@@ -59,6 +60,7 @@ PT_HIOS    :: 0x6FFFFFFF;
 PT_LOPROC  :: 0x70000000;
 PT_HIPROC  :: 0x7FFFFFFF;	
 
+@static
 ph_type_descriptions := map[u32]string{
 	PT_NULL =    "Null",
 	PT_LOAD =    "Loadable Segment",
@@ -94,6 +96,7 @@ SHT_SYMTAB_SHNDX  :: 0x12;
 SHT_NUM           :: 0x13;
 SHT_LOOS          :: 0x60000000;
 
+@static
 sh_type_descriptions := map[u32]string{
 	SHT_NULL = "NULL",
 	SHT_PROGBITS = "Program Data",
@@ -141,9 +144,7 @@ Elf32_Ehdr :: struct #packed {
 	type: u16,
 	machine: u16,
 	version: u32,
-	entry: u32, // make this into a pointer type? but maybe not since
-			    // we're compiling this on a 64 bit machine and we're
-			    // targeting 32 bit elf files
+	entry: u32,
 	phoff: u32,
 	shoff: u32,
 	flags: u32,
@@ -300,15 +301,18 @@ print_program_header :: proc(program_header: Elf32_Phdr) {
 	fmt.printf("align: %d\n", align);
 }
 
+
+lookup_section_name :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) -> string {
+	string_table_header: Elf32_Shdr = elf_file.section_headers[elf_file.file_header.shstrndx];
+	string_index := string_table_header.offset + section_header.name;
+	cs := cast(cstring)&elf_file.data[string_index];
+	return cast(string)cs;
+}
+
+
 print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
 	using section_header;
-	//calculate name
-
-	string_table_header: Elf32_Shdr = elf_file.section_headers[elf_file.file_header.shstrndx];
-	string_index := string_table_header.offset + name;
-	name_string: ^byte = &elf_file.data[string_index];
-
-	fmt.printf("name: %s\n", cstring(name_string));
+	fmt.printf("name: %s\n", lookup_section_name(elf_file, section_header));
 
 	type_descr, ok := sh_type_descriptions[type];
 	if(!ok) {
@@ -317,7 +321,8 @@ print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
 	fmt.printf("type: %s\n", type_descr);
 	fmt.printf("flags: 0x%x\n", flags);
 	fmt.printf("virtual address: 0x%x\n", addr);
-	fmt.printf("offset: %d\n", offset);
+	fmt.printf("offset: 0x%x\n", offset);
+	fmt.printf("size: 0x%x\n", size);
 	fmt.printf("link: %d\n", link);
 	fmt.printf("info: %d\n", info);
 	fmt.printf("addralign: %d\n", addralign);
@@ -325,12 +330,6 @@ print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
 }
 
 
-lookup_section_name :: proc(elf_file: Elf32_File, index: int) -> string {
-	file_header: ^Elf32_Ehdr = cast(^Elf32_Ehdr)&elf_file.data[0];
-	string_table_header: ^Elf32_Shdr = cast(^Elf32_Shdr) &elf_file.data[u32(file_header.shoff) + u32(file_header.shstrndx) * u32(file_header.shentsize)];
-	strings: ^byte = &elf_file.data[string_table_header.offset];
-	return "NOT IMPLEMENTED";
-}
 
 
 print_report :: proc(elf_file: Elf32_File) {
