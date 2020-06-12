@@ -1,5 +1,5 @@
 int array[1024];
-
+int asdf = 48;
 
 int add(int num){
   return num + num;

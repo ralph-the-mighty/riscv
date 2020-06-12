@@ -29,7 +29,7 @@ Reg :: enum {
 	x5 to be a link register, and x2 to be the stack pointer
 */
 CPU :: struct {
-	registers: [31]Reg,
+	registers: [32]Reg,
 	pc: Reg
 }
 
@@ -328,9 +328,10 @@ decode :: proc(ibits: u32) -> (Instruction, bool) {
 
 
 
-load :: proc(buffer: []byte, elf_file: elf.Elf32_File) -> bool {
+load :: proc(buffer: []byte, elf_file: ^elf.Elf32_File) -> bool {
 	
-	for sh in elf_file.section_headers {
+	for _, i in elf_file.section_headers {
+		sh := &elf_file.section_headers[i];
 		name: string = elf.lookup_section_name(elf_file, sh);
 		switch name {
 			case ".rodata", ".text":
@@ -358,16 +359,19 @@ load :: proc(buffer: []byte, elf_file: elf.Elf32_File) -> bool {
 
 
 
-disassemble :: proc(elf_file: elf.Elf32_File ) {
-	for sh in elf_file.section_headers {
+disassemble :: proc(elf_file: ^elf.Elf32_File ) {
+	for _, i in elf_file.section_headers {
+		sh := &elf_file.section_headers[i];
 		if elf.lookup_section_name(elf_file, sh) == ".text" {
 			fmt.println("disassembling the text section");
 
 			slice := elf_file.data[sh.offset : sh.size + sh.offset];
 			words := mem.slice_data_cast([]u32, slice);
-			for word in words {
+			for word, offset in words {
 				instr, ok := decode(word);
+				address := u32(offset * 4) + sh.addr;
 				if (ok) {
+					fmt.printf("0x%x: ", address); 
 					fmt.print(instr);
 					fmt.println();
 				}
@@ -381,42 +385,7 @@ disassemble :: proc(elf_file: elf.Elf32_File ) {
 
 
 
-scratch :: proc() {
-	// x: []byte = {0,1,2,3,4,5,6,7,8,9,10,11};
-
-	// y := x[0:5];
-
-	// fmt.print(x);
-	// fmt.print(y);
-	unsigned_bits :: proc(bits: u32, start: u32, length: u32) -> u32 {
-		assert(length > 0);
-		mask : u32 = 0xffffffff >> (32 - length);
-		return (bits >> start) & mask;
-	};
-
-	s_immediate :: proc(bits: u32) -> i32 {
-		return i32( (unsigned_bits(bits, 7, 5)) |
-					(u32(i32(bits) >> 14) & 0xffff_f800) ); // sign extend
-	};
-
-	print_bin :: proc(n: u32) {
-		x := n;
-		for i in 0..<32 {
-			fmt.printf("%d", (x & 0x8000_0000) == 0 ? 0 : 1);
-			x <<= 1;
-		}
-		fmt.println();
-	}
-
-
-
-	word : u32 = 0xfea42623;
-	print_bin(word);
-	print_bin(unsigned_bits(word, 7, 5));
-	print_bin((u32(i32(word) >> 14) & 0xffff_f800));
-
-
-}
+scratch :: proc() {}
 
 
 
@@ -438,14 +407,14 @@ main :: proc() {
 	file_bytes, success := os.read_entire_file(os.args[1]);
 	if(success) {
 		elf_file: elf.Elf32_File = elf.parse(file_bytes);
-		//elf.print_report(elf_file);
-		// ok := load(ram, elf_file);
-		// if(!ok) {
-		// 	fmt.eprint("Error loading program");
-		// 	os.exit(1);
-		// }
+		//elf.print_report(&elf_file);
+		ok := load(ram, &elf_file);
+		if(!ok) {
+			fmt.eprint("Error loading program");
+			os.exit(1);
+		}
 
-		disassemble(elf_file);
+		disassemble(&elf_file);
 	} else {
 		fmt.eprint("Error opening ELF file");
 		os.exit(1);

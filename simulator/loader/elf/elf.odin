@@ -5,15 +5,15 @@ import "core:fmt"
 
 
 //Elf file types
-ET_NONE   :: 0;
-ET_REL    :: 1;
-ET_EXEC   :: 2;
-ET_DYN    :: 3;
-ET_CORE   :: 4;
+ET_NONE   :: 0x0000;
+ET_REL    :: 0x0001;
+ET_EXEC   :: 0x0002;
+ET_DYN    :: 0x0003;
+ET_CORE   :: 0x0004;
 ET_LOOS   :: 0xfe00;
 ET_HIOS   :: 0xfeff;
 ET_LOPROC :: 0xff00;
-ET_HIPROC :: 0xffFF;
+ET_HIPROC :: 0xffff;
 
 @static
 elf_file_type_descriptions := map[u16]string {
@@ -174,13 +174,24 @@ Elf32_Shdr :: struct #packed {
 	name: u32,
 	type: u32,
 	flags: u32,
-	addr: u32,
+	addr: u32,  //virtual address in final executable
 	offset: u32,
 	size: u32,
 	link: u32,
 	info: u32,
 	addralign: u32,
 	entsize: u32
+};
+
+
+
+Elf32_Sym :: struct #packed {
+	name: u32,
+	value: u32,
+	size: u32,
+	info: byte,
+	other: byte,
+	shndx: u16
 };
 
 
@@ -302,7 +313,7 @@ print_program_header :: proc(program_header: Elf32_Phdr) {
 }
 
 
-lookup_section_name :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) -> string {
+lookup_section_name :: proc(elf_file: ^Elf32_File, section_header: ^Elf32_Shdr) -> string {
 	string_table_header: Elf32_Shdr = elf_file.section_headers[elf_file.file_header.shstrndx];
 	string_index := string_table_header.offset + section_header.name;
 	cs := cast(cstring)&elf_file.data[string_index];
@@ -310,7 +321,31 @@ lookup_section_name :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) ->
 }
 
 
-print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
+
+lookup_symbol_name :: proc(elf_file: ^Elf32_File, symbol: ^Elf32_Sym) -> string {
+	
+	if symbol.name == 0 {
+		return "UNNAMED";
+	}
+	
+	string_table_header: ^Elf32_Shdr;
+
+	for _, i in elf_file.section_headers {
+		sh := &elf_file.section_headers[i];
+		if lookup_section_name(elf_file, sh) == ".strtab" {
+			string_table_header = sh;
+			break;
+		}
+	}
+
+	string_index := string_table_header.offset + symbol.name;
+	cs := cast(cstring)&elf_file.data[string_index];
+	return cast(string)cs;
+}
+
+
+
+print_section_header :: proc(elf_file: ^Elf32_File, section_header: ^Elf32_Shdr) {
 	using section_header;
 	fmt.printf("name: %s\n", lookup_section_name(elf_file, section_header));
 
@@ -326,15 +361,29 @@ print_section_header :: proc(elf_file: Elf32_File, section_header: Elf32_Shdr) {
 	fmt.printf("link: %d\n", link);
 	fmt.printf("info: %d\n", info);
 	fmt.printf("addralign: %d\n", addralign);
-	fmt.printf("entsitze: %d\n", entsize);
+	fmt.printf("entsize: %d\n", entsize);
+}
+
+
+print_symbols :: proc(elf_file: ^Elf32_File, symtab_header: ^Elf32_Shdr) {
+	sym_count := symtab_header.size / symtab_header.entsize;
+
+	for i in 0..<sym_count {
+		symbol_ptr := cast(^Elf32_Sym) &elf_file.data[symtab_header.offset + i * symtab_header.entsize];
+		//fmt.print(symbol_ptr);
+		fmt.printf("name: %s\n", lookup_symbol_name(elf_file, symbol_ptr));
+	}
+	fmt.print("\n\n");
 }
 
 
 
 
-print_report :: proc(elf_file: Elf32_File) {
+print_report :: proc(elf_file: ^Elf32_File) {
 	print_header(elf_file.file_header);
 	fmt.print("\n\n");
+
+	symtab_header: ^Elf32_Shdr;
 
 	fmt.printf("Program Header Entries: %d (starts at 0x%x), size: %d bytes\n\n",
 			   elf_file.file_header.phnum,
@@ -349,9 +398,19 @@ print_report :: proc(elf_file: Elf32_File) {
 				elf_file.file_header.shoff,
 				elf_file.file_header.shentsize);
 
-	for header in elf_file.section_headers {
+	for _, i in elf_file.section_headers {
+		header := &elf_file.section_headers[i];
 		print_section_header(elf_file, header);
+
+		if lookup_section_name(elf_file, header) == ".symtab" {
+			symtab_header = header;
+		}
+
 		fmt.printf("\n\n");
 	}
-}
 
+	//print symbol table
+	fmt.printf("Symbol Table Entries: %d\n\n", symtab_header.entsize);
+	print_symbols(elf_file, symtab_header);
+
+}
