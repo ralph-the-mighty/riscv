@@ -359,19 +359,24 @@ load :: proc(buffer: []byte, elf_file: ^elf.Elf32_File) -> bool {
 
 
 
-disassemble :: proc(elf_file: ^elf.Elf32_File ) {
-	for _, i in elf_file.section_headers {
-		sh := &elf_file.section_headers[i];
+disassemble :: proc(elf_file: ^elf.Elf32_File) {
+	for _, sh_index in elf_file.section_headers {
+		sh := &elf_file.section_headers[sh_index];
 		if elf.lookup_section_name(elf_file, sh) == ".text" {
-			fmt.println("disassembling the text section");
+			fmt.println("Disassembly of section .text:\n");
 
 			slice := elf_file.data[sh.offset : sh.size + sh.offset];
 			words := mem.slice_data_cast([]u32, slice);
-			for word, offset in words {
+			for word, j in words {
 				instr, ok := decode(word);
-				address := u32(offset * 4) + sh.addr;
 				if (ok) {
-					fmt.printf("0x%x: ", address); 
+					address := u32(j * 4) + sh.addr;
+
+					sym := elf.global_sym_by_address(elf_file, address, u16(sh_index));
+					if(sym != nil) {
+						fmt.printf("\n%x <%s>\n", address, elf.sym_name(elf_file, sym));
+					}
+					fmt.printf("%x: ", address); 
 					fmt.print(instr);
 					fmt.println();
 				}
@@ -385,7 +390,17 @@ disassemble :: proc(elf_file: ^elf.Elf32_File ) {
 
 
 
-scratch :: proc() {}
+scratch :: proc() {
+	fmt.printf("%10s %-10s asdf\n", "adf", "asdfasdf");
+	fmt.printf("%10s %-10s asdf\n", "af", "asdff");
+	fmt.printf("%10s %-10s asdf\n", "asdfdd", "asdfasdfsdf");
+	fmt.printf("%10s %-10s asdf\n", "asdfssdf", "asdfasdf");
+
+
+
+	// fmt.println(-13);
+	// fmt.println(abs(-13));
+}
 
 
 
@@ -397,7 +412,7 @@ main :: proc() {
 	
 
 	ram = make([]byte, RAM_SIZE);
-	fmt.printf("RAM: 0x%x\n", &ram[0]);
+	//fmt.printf("RAM: 0x%x\n", &ram[0]);
 
 	if(len(os.args) < 2) {
 		fmt.eprint("Usage: loader [PATH_TO_ELF_FILE].elf");
@@ -407,7 +422,7 @@ main :: proc() {
 	file_bytes, success := os.read_entire_file(os.args[1]);
 	if(success) {
 		elf_file: elf.Elf32_File = elf.parse(file_bytes);
-		//elf.print_report(&elf_file);
+		elf.print_report(&elf_file);
 		ok := load(ram, &elf_file);
 		if(!ok) {
 			fmt.eprint("Error loading program");

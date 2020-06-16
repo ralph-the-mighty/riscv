@@ -71,8 +71,8 @@ ph_type_descriptions := map[u32]string{
 	PT_PHDR =    "Program Header",
 	PT_LOOS =    "OS Specific",
 	PT_HIOS =    "OS Specific",
-	PT_LOPROC =  "OS Specific",
-	PT_HIPROC =  "OS Specific",
+	PT_LOPROC =  "Processor Specific",
+	PT_HIPROC =  "Processor Specific",
 };
 
 //Section Header types
@@ -139,6 +139,67 @@ SHF_EXCLUDE          :: 0x8000000;
 
 
 
+
+//symbol table constants
+
+//symbol binding
+STB_LOCAL     :: 0;
+STB_GLOBAL    :: 1;
+STB_WEAK      :: 2;
+STB_LOOS      :: 10;
+STB_HIOS      :: 12;
+STB_LOPROC    :: 13;
+STB_HIPROC    :: 15;
+
+@static
+symbol_bind_descriptions := map[byte]string{
+	STB_LOCAL  = "LOCAL",
+	STB_GLOBAL = "GLOBAL",
+	STB_WEAK   = "WEAK",
+};
+
+
+//symbol type
+STT_NOTYPE  :: 0;
+STT_OBJECT  :: 1;
+STT_FUNC    :: 2;
+STT_SECTION :: 3;
+STT_FILE    :: 4;
+STT_COMMON  :: 5;
+STT_TLS     :: 6;
+STT_LOOS    :: 10;
+STT_HIOS    :: 12;
+STT_LOPROC  :: 13;
+STT_HIPROC  :: 15;
+
+@static
+symbol_type_descriptions := map[byte]string{
+	STT_NOTYPE  = "NOTYPE",
+	STT_OBJECT  = "OBJECT",
+	STT_FUNC    = "FUNC",
+	STT_SECTION = "SECTION",
+	STT_FILE    = "FILE",
+	STT_COMMON  = "COMMON",
+	STT_TLS     = "TLS",
+};
+
+
+//symbol visibility
+STV_DEFAULT   :: 0;
+STV_INTERNAL  :: 1;
+STV_HIDDEN    :: 2;
+STV_PROTECTED :: 3;
+
+@static
+symbol_vis_descriptions := map[byte]string{
+	STV_DEFAULT   = "DEFAULT",
+	STV_INTERNAL  = "INTERNAL",
+	STV_HIDDEN    = "HIDDEN",
+	STV_PROTECTED = "PROTECTED"
+};
+
+
+
 Elf32_Ehdr :: struct #packed {
 	ident: [EI_NIDENT]u8,
 	type: u16,
@@ -191,16 +252,27 @@ Elf32_Sym :: struct #packed {
 	size: u32,
 	info: byte,
 	other: byte,
-	shndx: u16
+	shndx: u16  //index of the section that this symbol is defined in
 };
 
+sym_visibility :: proc(sym: ^Elf32_Sym) -> byte {
+	return sym.other & 0x3;
+}
+
+sym_bind :: proc(sym: ^Elf32_Sym) -> byte {
+	return sym.info >> 4;
+}
+
+sym_type :: proc(sym: ^Elf32_Sym) -> byte {
+	return sym.info & 0xf;
+}
 
 
 Elf32_File :: struct {
 	data: []byte,
 	file_header: Elf32_Ehdr,
 	program_headers: [dynamic]Elf32_Phdr, //TODO, make these normal slices?
-	section_headers: [dynamic]Elf32_Shdr //TODO, make these normal slices?
+	section_headers: [dynamic]Elf32_Shdr  //TODO, make these normal slices?
 };
 
 
@@ -322,7 +394,7 @@ lookup_section_name :: proc(elf_file: ^Elf32_File, section_header: ^Elf32_Shdr) 
 
 
 
-lookup_symbol_name :: proc(elf_file: ^Elf32_File, symbol: ^Elf32_Sym) -> string {
+sym_name :: proc(elf_file: ^Elf32_File, symbol: ^Elf32_Sym) -> string {
 	
 	if symbol.name == 0 {
 		return "UNNAMED";
@@ -342,6 +414,37 @@ lookup_symbol_name :: proc(elf_file: ^Elf32_File, symbol: ^Elf32_Sym) -> string 
 	cs := cast(cstring)&elf_file.data[string_index];
 	return cast(string)cs;
 }
+
+
+
+symbol_table :: proc(elf_file: ^Elf32_File) -> ^Elf32_Shdr {
+	for _, i in elf_file.section_headers {
+		sh := &elf_file.section_headers[i];
+		if lookup_section_name(elf_file, sh) == ".symtab" {
+			return sh; 
+		}
+	}
+	return nil;
+}
+
+
+
+//SLOW AND UNWIELDY?
+global_sym_by_address :: proc(elf_file: ^Elf32_File, address: u32, sh_hdr_index: u16) -> ^Elf32_Sym {
+	
+	symtab_header := symbol_table(elf_file);
+	sym_count := symtab_header.size / symtab_header.entsize;
+	for i in 0..<sym_count {
+		sym := cast(^Elf32_Sym) &elf_file.data[symtab_header.offset + i * symtab_header.entsize];
+		if sym.value == address && sym_bind(sym) == STB_GLOBAL {
+			return sym;
+		}
+	}
+	return nil;
+}
+
+
+
 
 
 
@@ -367,23 +470,35 @@ print_section_header :: proc(elf_file: ^Elf32_File, section_header: ^Elf32_Shdr)
 
 print_symbols :: proc(elf_file: ^Elf32_File, symtab_header: ^Elf32_Shdr) {
 	sym_count := symtab_header.size / symtab_header.entsize;
+	fmt.printf("%10s %10s %10s %10s %5s %10s %20s\n", 
+		"Value", 
+		"Size", 
+		"Bind", 
+		"Vis", 
+		"Ndx", 
+		"Section", 
+		"Name");
 
 	for i in 0..<sym_count {
-		symbol_ptr := cast(^Elf32_Sym) &elf_file.data[symtab_header.offset + i * symtab_header.entsize];
-		//fmt.print(symbol_ptr);
-		fmt.printf("name: %s\n", lookup_symbol_name(elf_file, symbol_ptr));
+		sym := cast(^Elf32_Sym) &elf_file.data[symtab_header.offset + i * symtab_header.entsize];
+		fmt.printf("%8x:  %10x %10s %10s %5d %10s %20s\n", 
+			sym.value,
+			sym.size,
+			symbol_bind_descriptions[sym_bind(sym)],
+			symbol_vis_descriptions[sym_visibility(sym)],
+			sym.shndx,
+			"SECTION",
+			sym_name(elf_file, sym));
 	}
 	fmt.print("\n\n");
 }
-
-
 
 
 print_report :: proc(elf_file: ^Elf32_File) {
 	print_header(elf_file.file_header);
 	fmt.print("\n\n");
 
-	symtab_header: ^Elf32_Shdr;
+	
 
 	fmt.printf("Program Header Entries: %d (starts at 0x%x), size: %d bytes\n\n",
 			   elf_file.file_header.phnum,
@@ -401,15 +516,11 @@ print_report :: proc(elf_file: ^Elf32_File) {
 	for _, i in elf_file.section_headers {
 		header := &elf_file.section_headers[i];
 		print_section_header(elf_file, header);
-
-		if lookup_section_name(elf_file, header) == ".symtab" {
-			symtab_header = header;
-		}
-
 		fmt.printf("\n\n");
 	}
 
 	//print symbol table
+	symtab_header := symbol_table(elf_file);
 	fmt.printf("Symbol Table Entries: %d\n\n", symtab_header.entsize);
 	print_symbols(elf_file, symtab_header);
 
