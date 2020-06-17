@@ -20,7 +20,6 @@ Reg :: enum {
 	X9,  X10, X11, X12, X13, X14, X15, X16,
 	X17, X18, X19, X20, X21, X22, X23, X24,
 	X25, X26, X27, X28, X29, X30, X31, 
-
 }
 
 
@@ -77,10 +76,88 @@ Opcode :: enum {
 	FENCE,
 	ECALL,
 	EBREAK,
-
-
-	//RV64I opcodes
 }
+
+@static
+opcode_names := map[Opcode]string{
+	.LUI = "lui",
+	.AUIPC = "auipc",
+	.JAL = "jal",
+	.JALR = "jalr",
+	.BEQ = "beq",
+	.BNE = "bne",
+	.BLT = "blt",
+	.BGE = "bge",
+	.BLTU = "bltu",
+	.BGEU = "bgeu",
+	.LB = "lb",
+	.LH = "lh",
+	.LW = "lw",
+	.LBU = "lbu",
+	.LHU = "lhu",
+	.SB = "sb",
+	.SH = "sh",
+	.SW = "sw",
+	.ADDI = "addi",
+	.SLTI = "slti",
+	.SLTIU = "sltiu",
+	.XORI = "xori",
+	.ORI = "ori",
+	.ANDI = "andi",
+	.SLLI = "slli",
+	.SRLI = "srli",
+	.SRAI = "srai",
+	.ADD = "add",
+	.SUB = "sub",
+	.SLL = "sll",
+	.SLT = "slt",
+	.SLTU = "sltu",
+	.XOR = "xor",
+	.SRL = "srl",
+	.SRA = "sra",
+	.OR = "or",
+	.AND = "and",
+	.FENCE = "fence",
+	.ECALL = "ecall",
+	.EBREAK = "ebreak"
+};
+
+@static
+register_abi_names := map[Reg]string{
+	.X0 = "zero",
+	.X1 = "ra",
+	.X2 = "sp",
+	.X3 = "gp",
+	.X4 = "tp",
+	.X5 = "t0",
+	.X6 = "t1",
+	.X7 = "t2",
+	.X8 = "s0",
+	.X9 = "s1",
+  .X10 = "a0",
+	.X11 = "a1",
+	.X12 = "a2",
+	.X13 = "a3",
+	.X14 = "a4",
+	.X15 = "a5",
+	.X16 = "a6",
+	.X17 = "a7",
+	.X18 = "s2",
+	.X19 = "s3",
+	.X20 = "s4",
+	.X21 = "s5",
+	.X22 = "s6",
+	.X23 = "s7",
+	.X24 = "s8",
+	.X25 = "s9",
+	.X26 = "s10",
+	.X27 = "s11",
+	.X28 = "t3",
+	.X29 = "t4",
+	.X30 = "t6",
+	.X31 = "t7",
+};
+
 
 Instruction :: struct {
 	op: Opcode
@@ -358,6 +435,51 @@ load :: proc(buffer: []byte, elf_file: ^elf.Elf32_File) -> bool {
 
 
 
+print_instruction_att :: proc(instr: Instruction) {
+	fmt.printf("%s", opcode_names[instr.op]);
+
+	switch instr.op {
+		case .LUI, .AUIPC, .JAL:
+			fmt.printf("\t%s,%d", register_abi_names[instr.rd], instr.imm);
+		case .JALR:
+			fmt.printf("\t%s,%s,%d", 
+				register_abi_names[instr.rd],
+				register_abi_names[instr.rs1],
+				instr.imm);
+		case .BEQ, .BNE, .BLT, .BGE, .BLTU, .BGEU:
+			fmt.printf("\t%s,%s(%d)",
+				register_abi_names[instr.rs1],
+				register_abi_names[instr.rs2],
+				instr.imm);
+		case .LB, .LH, .LW, .LBU, .LHU:
+			fmt.printf("\t%s, %d(%s)",
+				register_abi_names[instr.rd],
+				instr.imm,
+				register_abi_names[instr.rs1]);
+		case .SB, .SH, .SW:
+			fmt.printf("\t%s,%d(%s)",
+				register_abi_names[instr.rd],
+				instr.imm,
+				register_abi_names[instr.rs1]);
+		case .ADDI, .SLTI, .SLTIU, .XORI, .ORI, .ANDI,
+				 .SLLI, .SRLI, .SRAI:
+			fmt.printf("\t%s,%s,%d",
+				register_abi_names[instr.rd],
+				register_abi_names[instr.rs1],
+				instr.imm);
+		case .ADD, .SUB, .SLL, .SLT, .SLTU, .XOR, .SRL,
+				 .SRA, .OR, .AND:
+			fmt.printf("\t%s,%s,%s",
+				register_abi_names[instr.rd],
+				register_abi_names[instr.rs1],
+				register_abi_names[instr.rs2]);
+		case .FENCE, .ECALL, .EBREAK:
+			fmt.print("\tSYSCALL INSTRUCTION");		
+	}
+}
+
+
+
 
 disassemble :: proc(elf_file: ^elf.Elf32_File) {
 	for _, sh_index in elf_file.section_headers {
@@ -367,17 +489,17 @@ disassemble :: proc(elf_file: ^elf.Elf32_File) {
 
 			slice := elf_file.data[sh.offset : sh.size + sh.offset];
 			words := mem.slice_data_cast([]u32, slice);
-			for word, j in words {
+			for word, i in words {
 				instr, ok := decode(word);
 				if (ok) {
-					address := u32(j * 4) + sh.addr;
+					address := u32(i * 4) + sh.addr;
 
 					sym := elf.global_sym_by_address(elf_file, address, u16(sh_index));
 					if(sym != nil) {
 						fmt.printf("\n%x <%s>\n", address, elf.sym_name(elf_file, sym));
 					}
-					fmt.printf("%x: ", address); 
-					fmt.print(instr);
+					fmt.printf("%8x:\t%8x\t\t", address, word); 
+					print_instruction_att(instr);
 					fmt.println();
 				}
 			}
@@ -388,31 +510,11 @@ disassemble :: proc(elf_file: ^elf.Elf32_File) {
 
 
 
-
-
-scratch :: proc() {
-	fmt.printf("%10s %-10s asdf\n", "adf", "asdfasdf");
-	fmt.printf("%10s %-10s asdf\n", "af", "asdff");
-	fmt.printf("%10s %-10s asdf\n", "asdfdd", "asdfasdfsdf");
-	fmt.printf("%10s %-10s asdf\n", "asdfssdf", "asdfasdf");
-
-
-
-	// fmt.println(-13);
-	// fmt.println(abs(-13));
-}
-
-
-
 main :: proc() {
 
-
-	// scratch();
-	// os.exit(0);
 	
 
 	ram = make([]byte, RAM_SIZE);
-	//fmt.printf("RAM: 0x%x\n", &ram[0]);
 
 	if(len(os.args) < 2) {
 		fmt.eprint("Usage: loader [PATH_TO_ELF_FILE].elf");
