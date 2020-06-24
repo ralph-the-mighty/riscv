@@ -271,8 +271,8 @@ sym_type :: proc(sym: ^Elf32_Sym) -> byte {
 Elf32_File :: struct {
 	data: []byte,
 	file_header: Elf32_Ehdr,
-	program_headers: [dynamic]Elf32_Phdr, //TODO, make these normal slices?
-	section_headers: [dynamic]Elf32_Shdr  //TODO, make these normal slices?
+	program_headers: [dynamic]Elf32_Phdr,  //TODO: make these normal slices?
+	section_headers: [dynamic]Elf32_Shdr,  //TODO: make these normal slices?
 };
 
 
@@ -416,6 +416,19 @@ sym_name :: proc(elf_file: ^Elf32_File, symbol: ^Elf32_Sym) -> string {
 }
 
 
+lookup_symbol_by_name :: proc(elf_file: ^Elf32_File, name: string) -> ^Elf32_Sym {
+	symtab_header := symbol_table(elf_file);
+	sym_count := symtab_header.size / symtab_header.entsize;
+	for i in 0..<sym_count {
+		sym := cast(^Elf32_Sym) &elf_file.data[symtab_header.offset + i * symtab_header.entsize];
+		if sym_name(elf_file, sym) == name {
+			return sym;
+		}
+	}
+	return nil;
+}
+
+
 
 symbol_table :: proc(elf_file: ^Elf32_File) -> ^Elf32_Shdr {
 	for _, i in elf_file.section_headers {
@@ -442,6 +455,11 @@ global_sym_by_address :: proc(elf_file: ^Elf32_File, address: u32, sh_hdr_index:
 	}
 	return nil;
 }
+
+
+
+
+
 
 
 

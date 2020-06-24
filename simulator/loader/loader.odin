@@ -8,12 +8,6 @@ import "elf"
 
 
 
-RAM_SIZE :: 1024 * 1024;
-ram : []byte;
-
-
-
-
 
 Reg :: enum {
 	X0, X1,  X2,  X3,  X4,  X5,  X6,  X7,  X8,
@@ -28,8 +22,9 @@ Reg :: enum {
 	x5 to be a link register, and x2 to be the stack pointer
 */
 CPU :: struct {
-	registers: [32]Reg,
-	pc: Reg
+	registers: [32]i32,
+	pc: u32,
+	ram: []byte
 }
 
 
@@ -238,9 +233,11 @@ decode :: proc(ibits: u32) -> (Instruction, bool) {
 		case 0x37:
 			instr.op = .LUI;
 			instr.rd = rd(ibits);
+			instr.imm = u_immediate(ibits);
 		case 0x17:
 			instr.op = .AUIPC;
 			instr.rd = rd(ibits);
+			instr.imm = u_immediate(ibits);
 		case 0x6f: 
 			instr.op = .JAL;
 			instr.rd = rd(ibits);
@@ -412,14 +409,14 @@ load :: proc(buffer: []byte, elf_file: ^elf.Elf32_File) -> bool {
 		name: string = elf.lookup_section_name(elf_file, sh);
 		switch name {
 			case ".rodata", ".text":
-				if(sh.addr + sh.size > RAM_SIZE) {
+				if(sh.addr + sh.size > cast(u32)len(buffer)) {
 					fmt.eprint("RAM_SIZE too small to load this section\n");
 					return false;
 				} else {
 					mem.copy(&buffer[sh.addr], &elf_file.data[sh.offset], int(sh.size));
 				}
 			case ".bss":
-				if(sh.addr + sh.size > RAM_SIZE) {
+				if(sh.addr + sh.size > cast(u32)len(buffer)) {
 					fmt.eprint("RAM_SIZE too small to load this section\n");
 					return false;
 				} else {
@@ -510,30 +507,227 @@ disassemble :: proc(elf_file: ^elf.Elf32_File) {
 
 
 
+
+init :: proc(cpu: ^CPU, ram_size: uint) {
+	cpu^ = CPU{};
+	cpu.registers[Reg.X2] = i32(ram_size); // initialize stack pointer to top of memory
+	cpu.ram = make([]byte, ram_size);
+}
+
+
+read_reg :: proc(cpu: ^CPU, reg: Reg) -> i32 {
+	return reg == .X0 ? 0 : cpu.registers[reg];
+}
+
+write_reg :: proc(cpu: ^CPU, reg: Reg, value: i32) {
+	if (reg != .X0) {
+		cpu.registers[reg] = value;
+	}
+}
+
+read_word :: proc(cpu: ^CPU, address: u32) -> u32 {
+	byte_ptr := &cpu.ram[address];
+	word_ptr := cast(^u32)byte_ptr;
+  return word_ptr^;
+}
+
+store_word :: proc(cpu: ^CPU, address: u32, word: u32) {
+	byte_ptr := &cpu.ram[address];
+	word_ptr := cast(^u32)byte_ptr;
+	word_ptr^ = word;
+}
+
+
+execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
+	jumped := false;
+
+	if(cpu.pc & 0x3 != 0) {
+		fmt.eprintf("0x%8x: illegal fetch of misaligned address");
+	}
+
+	switch(instr.op) {
+		case .LUI:
+			write_reg(cpu, instr.rd, instr.imm);
+		case .AUIPC:
+			write_reg(cpu, instr.rd, instr.imm + i32(cpu.pc));
+			return false;
+		case .JAL:
+			write_reg(cpu, instr.rd, i32(cpu.pc + 4));
+			fmt.printf("\tJAL immediate: %d\n", instr.imm);
+			cpu.pc += u32(instr.imm);
+			fmt.printf("\tnew pc: %d", cpu.pc);
+			jumped = true;
+		case .JALR:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BEQ:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BNE:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BLT:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BGE:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BLTU:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .BGEU:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .LB:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .LH:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .LW:
+			address := u32(read_reg(cpu, instr.rs1) + instr.imm);
+			write_reg(cpu, instr.rd, cast(i32)read_word(cpu, address));
+		case .LBU:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .LHU:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SB:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SH:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SW:
+			address := u32(read_reg(cpu, instr.rs1) + instr.imm);
+			store_word(cpu, address, cast(u32)read_reg(cpu, instr.rd));
+		case .ADDI:
+			//ensure that odin addition semantics match ADDI
+			write_reg(cpu, instr.rd, cpu.registers[instr.rs1] + instr.imm);
+		case .SLTI:
+			write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) < instr.imm ? 1 : 0);
+		case .SLTIU:
+			write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) < instr.imm ? 1 : 0);
+		case .XORI:
+			write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) ~ instr.imm);
+		case .ORI:
+			write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) | instr.imm);
+		case .ANDI:
+			write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) & instr.imm);
+		case .SLLI:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SRLI:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SRAI:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .ADD:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SUB:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SLL:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SLT:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SLTU:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .XOR:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SRL:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .SRA:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .OR:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .AND:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .FENCE:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .ECALL:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+		case .EBREAK:
+			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+			return false;
+	}
+
+	if !jumped {
+		cpu.pc += 4;
+	}
+	return true;
+}
+
+
+
+
 main :: proc() {
 
-	
 
-	ram = make([]byte, RAM_SIZE);
 
 	if(len(os.args) < 2) {
 		fmt.eprint("Usage: loader [PATH_TO_ELF_FILE].elf");
 		os.exit(1);
 	}
 
-	file_bytes, success := os.read_entire_file(os.args[1]);
-	if(success) {
-		elf_file: elf.Elf32_File = elf.parse(file_bytes);
-		elf.print_report(&elf_file);
-		ok := load(ram, &elf_file);
-		if(!ok) {
-			fmt.eprint("Error loading program");
-			os.exit(1);
-		}
+	cpu: CPU;
+	init(&cpu, 1024 * 1024);
 
-		disassemble(&elf_file);
-	} else {
+	file_bytes, success := os.read_entire_file(os.args[1]);
+	if (!success) {
 		fmt.eprint("Error opening ELF file");
 		os.exit(1);
+	}
+
+
+	elf_file: elf.Elf32_File = elf.parse(file_bytes);
+	//elf.print_report(&elf_file);
+	ok := load(cpu.ram, &elf_file);
+	if(!ok) {
+		fmt.eprint("Error loading program");
+		os.exit(1);
+	}
+	disassemble(&elf_file);
+
+	startsym := elf.lookup_symbol_by_name(&elf_file, "_start");
+	if(startsym == nil) {
+		fmt.eprintf("No start symbol defined! Exiting . . .");
+		os.exit(1);
+	}
+	cpu.pc = startsym.value;
+	
+	
+	fmt.print("\n\n==============================\n");
+	fmt.println("Executing!!");
+	//execute loop
+	for {
+		word : u32 = (cast(^u32)(&cpu.ram[cpu.pc]))^;
+		instr, ok := decode(word);
+		if !ok {
+			fmt.eprintf("decoding error at 0x%x!\n", cpu.pc);
+			break;
+		}
+		
+		fmt.print("Executing ");
+		print_instruction_att(instr);
+		fmt.println();
+		res := execute(&cpu, instr);
+		if !res {
+			fmt.eprintln("execution error!");
+			break;
+		}
 	}
 }
