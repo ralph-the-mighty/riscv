@@ -165,6 +165,11 @@ Instruction :: struct {
 }
 
 
+unsigned_bits :: proc(bits: u32, start: u32, length: u32) -> u32 {
+  assert(length > 0);
+  mask : u32 = 0xffffffff >> (32 - length);
+  return (bits >> start) & mask;
+};
 
 
 decode :: proc(ibits: u32) -> (Instruction, bool) {
@@ -188,12 +193,6 @@ decode :: proc(ibits: u32) -> (Instruction, bool) {
   func7 :: proc(ibits: u32) -> byte {
     return byte((ibits >> 25) & 0x7f);
   }
-
-  unsigned_bits :: proc(bits: u32, start: u32, length: u32) -> u32 {
-    assert(length > 0);
-    mask : u32 = 0xffffffff >> (32 - length);
-    return (bits >> start) & mask;
-  };
 
   i_immediate :: proc(bits: u32) -> i32 {
     return i32(bits) >> 20; //sign extend
@@ -539,6 +538,7 @@ store_word :: proc(cpu: ^CPU, address: u32, word: u32) {
 
 
 execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
+  
   jumped := false;
 
   if(cpu.pc & 0x3 != 0) {
@@ -550,32 +550,52 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
       write_reg(cpu, instr.rd, instr.imm);
     case .AUIPC:
       write_reg(cpu, instr.rd, instr.imm + i32(cpu.pc));
-      return false;
+
+
     case .JAL:
+      //TODO make sure that the address to jump to is 4 byte aligned (RISCV spec p.21)
       write_reg(cpu, instr.rd, i32(cpu.pc + 4));
       cpu.pc += u32(instr.imm);
       jumped = true;
     case .JALR:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      //TODO make sure that the address to jump to is 4 byte aligned (RISCV spec p.21)
+      target := instr.imm + read_reg(cpu, instr.rs1);
+      target &= ~(i32(0x1));
+      write_reg(cpu, instr.rd, i32(cpu.pc + 4));
+      cpu.pc = + u32(target);
+      jumped = true;
     case .BEQ:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if read_reg(cpu, instr.rs1) == read_reg(cpu, instr.rs2) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      } 
     case .BNE:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if read_reg(cpu, instr.rs1) != read_reg(cpu, instr.rs2) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      } 
     case .BLT:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if read_reg(cpu, instr.rs1) < read_reg(cpu, instr.rs2) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      } 
     case .BGE:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if read_reg(cpu, instr.rs1) > read_reg(cpu, instr.rs2) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      } 
     case .BLTU:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if u32(read_reg(cpu, instr.rs1)) < u32(read_reg(cpu, instr.rs2)) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      } 
     case .BGEU:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      if u32(read_reg(cpu, instr.rs1)) > u32(read_reg(cpu, instr.rs2)) {
+        cpu.pc = cpu.pc + u32(instr.imm);
+        jumped = true;
+      }
+
+
     case .LB:
       fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
       return false;
@@ -600,6 +620,8 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
     case .SW:
       address := u32(read_reg(cpu, instr.rs1) + instr.imm);
       store_word(cpu, address, cast(u32)read_reg(cpu, instr.rd));
+
+
     case .ADDI:
       //ensure that odin addition semantics match ADDI
       write_reg(cpu, instr.rd, cpu.registers[instr.rs1] + instr.imm);
@@ -614,13 +636,12 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
     case .ANDI:
       write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) & instr.imm);
     case .SLLI:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) << u32(instr.imm));
     case .SRLI:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+      write_reg(cpu, instr.rd, i32(u32(read_reg(cpu, instr.rs1)) >> u32(instr.imm)));
       return false;
     case .SRAI:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) >> u32(instr.imm));
       return false;
     case .ADD:
       fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
@@ -694,11 +715,7 @@ scratch :: proc() {
     fmt.println();
   }
 
-  word := 0xfb9ff0ef;
-  imm := j_immediate(cast(u32)word);
-  imm2 : u32 = 0xffff_ffb8;
-
-  fmt.printf("%d, 0x%8x", transmute(i32)imm, u32(imm));
+  fmt.println();
 
 }
 
