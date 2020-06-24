@@ -218,9 +218,9 @@ decode :: proc(ibits: u32) -> (Instruction, bool) {
 
 	j_immediate :: proc(bits: u32) -> i32 {
 		return i32((unsigned_bits(bits, 21, 10) << 1) |
-					(unsigned_bits(bits, 20, 1) << 11) |
-					(unsigned_bits(bits, 12, 8) << 12) |
-					(u32((i32(bits) >> 11) & 0xffe)));
+							(unsigned_bits(bits, 20, 1) << 11) |
+							(unsigned_bits(bits, 12, 8) << 12) |
+							(unsigned_bits(bits, 31, 1) == 1 ? 0xfff0_0000 : 0));
 	}
 
 
@@ -553,9 +553,7 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
 			return false;
 		case .JAL:
 			write_reg(cpu, instr.rd, i32(cpu.pc + 4));
-			fmt.printf("\tJAL immediate: %d\n", instr.imm);
 			cpu.pc += u32(instr.imm);
-			fmt.printf("\tnew pc: %d", cpu.pc);
 			jumped = true;
 		case .JALR:
 			fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
@@ -672,11 +670,46 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
 }
 
 
+scratch :: proc() {
+	
+	unsigned_bits :: proc(bits: u32, start: u32, length: u32) -> u32 {
+		assert(length > 0);
+		mask : u32 = 0xffff_ffff >> (32 - length);
+		return (bits >> start) & mask;
+	};
+	
+	j_immediate :: proc(bits: u32) -> i32 {
+		return i32((unsigned_bits(bits, 21, 10) << 1) |
+							(unsigned_bits(bits, 20, 1) << 11) |
+							(unsigned_bits(bits, 12, 8) << 12) |
+							(unsigned_bits(bits, 31, 1) == 1 ? 0xfff0_0000 : 0));
+	}
+
+	print_bin :: proc(n: u32) {
+		x := n;
+		for i in 0..<32 {
+			fmt.printf("%d", (x & 0x8000_0000) == 0 ? 0 : 1);
+			x <<= 1;
+		}
+		fmt.println();
+	}
+
+	word := 0xfb9ff0ef;
+	imm := j_immediate(cast(u32)word);
+	imm2 : u32 = 0xffff_ffb8;
+
+	fmt.printf("%d, 0x%8x", transmute(i32)imm, u32(imm));
+
+}
 
 
 main :: proc() {
 
-
+	if(false) {
+		scratch();
+		os.exit(1);	
+	}
+	
 
 	if(len(os.args) < 2) {
 		fmt.eprint("Usage: loader [PATH_TO_ELF_FILE].elf");
