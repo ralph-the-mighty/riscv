@@ -639,40 +639,34 @@ execute :: proc(cpu: ^CPU, instr: Instruction) -> bool {
       write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) << u32(instr.imm));
     case .SRLI:
       write_reg(cpu, instr.rd, i32(u32(read_reg(cpu, instr.rs1)) >> u32(instr.imm)));
-      return false;
     case .SRAI:
       write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) >> u32(instr.imm));
-      return false;
+
+
     case .ADD:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) + read_reg(cpu,instr.rs2));
     case .SUB:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) - read_reg(cpu,instr.rs2));
     case .SLL:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) << (read_reg(cpu,instr.rs2) & 0x1f) );
     case .SLT:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      cmp := read_reg(cpu, instr.rs1) < read_reg(cpu,instr.rs2);
+      write_reg(cpu, instr.rd, cmp ? 1 : 0);
     case .SLTU:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      cmp := u32(read_reg(cpu, instr.rs1)) < u32(read_reg(cpu,instr.rs2));
+      write_reg(cpu, instr.rd, cmp ? 1 : 0);
     case .XOR:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) ~ read_reg(cpu,instr.rs2));
     case .SRL:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, u32(read_reg(cpu, instr.rs1)) >> (read_reg(cpu,instr.rs2) & 0x1f) );
     case .SRA:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) >> (read_reg(cpu,instr.rs2) & 0x1f) );
     case .OR:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) | read_reg(cpu,instr.rs2));
     case .AND:
-      fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
-      return false;
+      write_reg(cpu, instr.rd, read_reg(cpu, instr.rs1) & read_reg(cpu,instr.rs2));
+
+      
     case .FENCE:
       fmt.eprintf("0x%8x: %s not yet implemented\n", cpu.pc, opcode_names[instr.op]);
       return false;
